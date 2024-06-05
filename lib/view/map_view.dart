@@ -1,6 +1,8 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:flutter_travel_helper/directions_service.dart';
+import 'package:flutter_travel_helper/nearby_service.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:flutter_travel_helper/bloc/auto_complete/auto_complete_bloc.dart';
 import 'package:flutter_travel_helper/bloc/marker/marker_cubit.dart';
@@ -18,8 +20,7 @@ class NearByPlacesScreen extends StatefulWidget {
 }
 
 class _NearByPlacesScreenState extends State<NearByPlacesScreen> {
-  String apiKey =
-      "AIzaSyCtDZe1bsOKTMKwId3f9oggIaHb8h2sakw";
+  String apiKey = "AIzaSyCtDZe1bsOKTMKwId3f9oggIaHb8h2sakw";
   String radius = "1500";
   double latitude = 0;
   double longitude = 0;
@@ -78,11 +79,12 @@ class _NearByPlacesScreenState extends State<NearByPlacesScreen> {
               child: const Text("nearby restaurant"),
             ),
             ElevatedButton(
-                onPressed: () {
-                  getNearbyPlaces("park");
-                },
-                child: const Text("nearby parks"),
-            ), ElevatedButton(
+              onPressed: () {
+                getNearbyPlaces("park");
+              },
+              child: const Text("nearby parks"),
+            ),
+            ElevatedButton(
               onPressed: () {
                 getNearbyPlaces("shopping_mall");
               },
@@ -105,7 +107,8 @@ class _NearByPlacesScreenState extends State<NearByPlacesScreen> {
           longitude.toString() +
           '&radius=' +
           radius +
-          '&type='+ type + // Filter by restaurants
+          '&type=' +
+          type + // Filter by restaurants
           '&key=' +
           apiKey,
     );
@@ -114,8 +117,7 @@ class _NearByPlacesScreenState extends State<NearByPlacesScreen> {
 
     if (response.statusCode == 200) {
       setState(() {
-        nearbyPlacesResponse =
-            NearbyPlacesResponse.fromJson(jsonDecode(response.body));
+        nearbyPlacesResponse = NearbyPlacesResponse.fromJson(jsonDecode(response.body));
       });
     } else {
       // Handle error
@@ -125,8 +127,11 @@ class _NearByPlacesScreenState extends State<NearByPlacesScreen> {
 
   Widget nearbyPlacesWidget(Results results) {
     return InkWell(
-      onTap: () {
-        // Navigate to restaurant details screen or perform other actions
+      onTap: () async {
+        context.read<AutoCompleteBloc>().add(const TextChanged(text: ''));
+        context.findAncestorStateOfType<_MapViewState>()?._onPlaceSelected();
+        await context.read<MarkerCubit>().selectPlace(results.placeId.toString());
+        Navigator.pop(context);
       },
       child: Container(
         margin: const EdgeInsets.symmetric(vertical: 10, horizontal: 20),
@@ -177,7 +182,7 @@ class _NearByPlacesScreenState extends State<NearByPlacesScreen> {
               ),
             ),
             SizedBox(width: 10),
-            if (results.reference != null)//need to change to link!!!
+            if (results.reference != null) //need to change to link!!!
               IconButton(
                 icon: Icon(Icons.link),
                 onPressed: () {
@@ -189,7 +194,6 @@ class _NearByPlacesScreenState extends State<NearByPlacesScreen> {
       ),
     );
   }
-
 }
 
 class MapView extends StatefulWidget {
@@ -203,11 +207,218 @@ class _MapViewState extends State<MapView> {
   bool _placeSelected = false;
   LatLng? _initialPosition; // Nullable to handle loading state
   bool _loadingLocation = true; // Add loading indicator variable
+  String apiKey = "AIzaSyCtDZe1bsOKTMKwId3f9oggIaHb8h2sakw";
+  late final DirectionsService _directionsService;
+  Map<String, dynamic>? _directions;
+  Set<Polyline>? _polyLines;
+  Set<Marker> _markers = {};
+  List<String> _waypoints = [];
+  String _originalDestination = '';
 
   @override
   void initState() {
     super.initState();
+    _directionsService = DirectionsService(apiKey: apiKey);
     _getLocation();
+  }
+
+  String formatWaypoints(List<String> waypoints) {
+    return waypoints.map((wp) => 'via:$wp').join('|');
+  }
+
+  void _addPlaceToRoute(Results result) {
+    final waypoint = LatLng(result.geometry!.location!.lat!, result.geometry!.location!.lng!);
+    final waypointString = '${waypoint.latitude},${waypoint.longitude}';
+
+    setState(() {
+      _waypoints.add(waypointString);
+    });
+
+    // Call getDirections with the original destination and updated waypoints
+    getDirections(_originalDestination, _waypoints);
+  }
+  void _clearWaypoints() {
+    setState(() {
+      _waypoints.clear();
+    });
+  }
+
+  List<Map<String, double>> decodePolyline(String polyline) {
+    List<Map<String, double>> points = [];
+    int index = 0, len = polyline.length;
+    int lat = 0, lng = 0;
+
+    while (index < len) {
+      int b, shift = 0, result = 0;
+      do {
+        b = polyline.codeUnitAt(index++) - 63;
+        result |= (b & 0x1F) << shift;
+        shift += 5;
+      } while (b >= 0x20);
+      int dlat = ((result & 1) != 0 ? ~(result >> 1) : (result >> 1));
+      lat += dlat;
+
+      shift = 0;
+      result = 0;
+      do {
+        b = polyline.codeUnitAt(index++) - 63;
+        result |= (b & 0x1F) << shift;
+        shift += 5;
+      } while (b >= 0x20);
+      int dlng = ((result & 1) != 0 ? ~(result >> 1) : (result >> 1));
+      lng += dlng;
+
+      points.add({"lat": lat / 1E5, "lng": lng / 1E5});
+    }
+    return points;
+  }
+
+
+
+  void getDirections(String destination, List<String> waypoints) async {
+    try {
+      location.LocationData loc = await location.Location().getLocation();
+      LatLng origin;
+
+      if (loc.latitude != null && loc.longitude != null) {
+        origin = LatLng(loc.latitude!, loc.longitude!);
+
+        String waypointsParam = waypoints.isNotEmpty ? '&waypoints=${waypoints.join('|')}' : '';
+        String url = 'https://maps.googleapis.com/maps/api/directions/json?origin=${origin.latitude},${origin.longitude}&destination=$destination&key=$apiKey$waypointsParam';
+
+        print('Request URL: $url'); // Log the request URL
+
+        final response = await http.get(Uri.parse(url));
+
+        if (response.statusCode == 200) {
+          final Map<String, dynamic> data = jsonDecode(response.body);
+
+          if (data['routes'].isEmpty) {
+            print('No routes found');
+            return;
+          }
+
+          final points = decodePolyline(data['routes'][0]['overview_polyline']['points']);
+          _polyLines = {};
+
+          final List<LatLng> polylineCoordinates = points.map((point) {
+            return LatLng(point['lat']!, point['lng']!);
+          }).toList();
+
+          setState(() {
+            _polyLines!.add(
+              Polyline(
+                polylineId: PolylineId('route'),
+                points: polylineCoordinates,
+                color: Colors.blue,
+                width: 5,
+              ),
+            );
+          });
+
+          // Fetch nearby places along the route
+          getNearbyMarkers(polylineCoordinates.last);
+          getNearbyMarkers(polylineCoordinates[((polylineCoordinates.length - 1) / 2).round()]);
+
+          LatLngBounds bounds = _getBounds(polylineCoordinates);
+          context.read<MarkerCubit>().controller.animateCamera(CameraUpdate.newLatLngBounds(bounds, 30));
+        } else {
+          print('Failed to load directions');
+          print(response.body);
+        }
+      }
+    } catch (e) {
+      print('Error occurred while fetching directions: $e');
+    }
+  }
+  LatLngBounds _getBounds(List<LatLng> polyline) {
+    double southWestLat = polyline.first.latitude;
+    double southWestLng = polyline.first.longitude;
+    double northEastLat = polyline.first.latitude;
+    double northEastLng = polyline.first.longitude;
+
+    for (var point in polyline) {
+      if (point.latitude < southWestLat) southWestLat = point.latitude;
+      if (point.longitude < southWestLng) southWestLng = point.longitude;
+      if (point.latitude > northEastLat) northEastLat = point.latitude;
+      if (point.longitude > northEastLng) northEastLng = point.longitude;
+    }
+
+    return LatLngBounds(
+      southwest: LatLng(southWestLat, southWestLng),
+      northeast: LatLng(northEastLat, northEastLng),
+    );
+  }
+
+  void getNearbyMarkers(LatLng location) async {
+    _markers = {};
+    var res = await NearbyService.getNearbyPlaces("restaurant", location, 2000);
+    if (res != null && res.results != null) {
+      for (Results result in res.results!) {
+        LatLng loc = LatLng(result.geometry!.location!.lat!, result.geometry!.location!.lng!);
+        _markers.add(Marker(
+          markerId: MarkerId(result.placeId!),
+          position: loc,
+          onTap: () {
+            _showMarkerDetails(result);
+          },
+        ));
+      }
+    }
+    setState(() {});
+  }
+
+  void _showMarkerDetails(Results result) {
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: Text(result.name ?? 'Details'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('Rating: ${result.rating?.toString() ?? 'N/A'}'),
+              const SizedBox(height: 5),
+              Text(
+                result.openingHours != null && result.openingHours!.openNow != null
+                    ? (result.openingHours!.openNow! ? "Status: Open" : "Status: Closed")
+                    : "Opening hours: Not available",
+                style: TextStyle(
+                  color: result.openingHours != null && result.openingHours!.openNow != null
+                      ? (result.openingHours!.openNow! ? Colors.green : Colors.red)
+                      : Colors.black,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              const SizedBox(height: 5),
+              Text('Address: ${result.vicinity ?? 'Not available'}'),
+              const SizedBox(height: 5),
+              if (result.photos != null && result.photos!.isNotEmpty)
+                Image.network(
+                  'https://maps.googleapis.com/maps/api/place/photo?maxwidth=400&photoreference=${result.photos![0].photoReference}&key=$apiKey',
+                  fit: BoxFit.cover,
+                ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              child: const Text('Close'),
+              onPressed: () {
+                Navigator.of(context).pop();
+              },
+            ),
+            TextButton(
+              child: const Text('Add'),
+              onPressed: () {
+                Navigator.of(context).pop();
+                _addPlaceToRoute(result);
+              },
+            ),
+          ],
+        );
+      },
+    );
   }
 
   Future<void> _getLocation() async {
@@ -262,13 +473,16 @@ class _MapViewState extends State<MapView> {
 
   @override
   Widget build(BuildContext context) {
-    final kDefaultPosition = const CameraPosition(target: LatLng(11.967375, 121.924812), zoom: 15);
-    final kInitialPosition = _initialPosition != null
-        ? CameraPosition(target: _initialPosition!, zoom: 15)
-        : kDefaultPosition;
+    final markerCubit = context.read<MarkerCubit>();
+    CameraPosition kDefaultPosition = const CameraPosition(target: LatLng(11.967375, 121.924812), zoom: 15);
+    if (markerCubit.selectedMarker != null) {
+      kDefaultPosition = CameraPosition(target: markerCubit.selectedMarker!.position, zoom: 15);
+    }
+
+    final kInitialPosition =
+        _initialPosition != null ? CameraPosition(target: _initialPosition!, zoom: 15) : kDefaultPosition;
 
     final textController = TextEditingController();
-    final placeSearchService = PlaceSearchService();
 
     return Scaffold(
       appBar: AppBar(
@@ -276,47 +490,43 @@ class _MapViewState extends State<MapView> {
       ),
       body: _loadingLocation // Check if loading location
           ? Center(child: CircularProgressIndicator()) // Show circular progress indicator while loading
-          : MultiBlocProvider(
-        providers: [
-          BlocProvider(
-            create: (_) => MarkerCubit(placeSearchService: placeSearchService),
-          ),
-          BlocProvider(
-            create: (_) => AutoCompleteBloc(placeSearchService: placeSearchService),
-          ),
-        ],
-        child: Stack(
-          children: [
-            MapWidget(kInitialPosition: kInitialPosition),
-            if (_placeSelected)
-              Positioned(
-                bottom: 20,
-                right: 20,
-                child: FloatingActionButton(
-                  onPressed: _onFABPressed,
-                  child: const Icon(Icons.restaurant),
+          : Stack(
+              children: [
+                MapWidget(
+                  kInitialPosition: kInitialPosition,
+                  polylines: _polyLines,
+                  markers: _markers,
                 ),
-              ),
-            PredictionList(
-              textController: textController,
-              onPlaceSelected: _onPlaceSelected,
+                if (_placeSelected)
+                  Positioned(
+                    bottom: 20,
+                    right: 20,
+                    child: FloatingActionButton(
+                      onPressed: _onFABPressed,
+                      child: const Icon(Icons.restaurant),
+                    ),
+                  ),
+                PredictionList(
+                  textController: textController,
+                  onPlaceSelected: _onPlaceSelected,
+                ),
+              ],
             ),
-          ],
-        ),
-      ),
     );
   }
 }
 
-
-
 class MapWidget extends StatelessWidget {
   const MapWidget({
-    required this.kInitialPosition,
     Key? key,
+    required this.kInitialPosition,
+    this.polylines,
+    this.markers,
   }) : super(key: key);
 
   final CameraPosition kInitialPosition;
+  final Set<Polyline>? polylines;
+  final Set<Marker>? markers;
 
   @override
   Widget build(BuildContext context) {
@@ -326,8 +536,11 @@ class MapWidget extends StatelessWidget {
           onMapCreated: (controller) {
             context.read<MarkerCubit>().controller = controller;
           },
-          markers: context.read<MarkerCubit>().mapMarkers,
+          // markers: context.read<MarkerCubit>().mapMarkers,
+          markers: markers ?? {},
           initialCameraPosition: kInitialPosition,
+          myLocationEnabled: true,
+          polylines: polylines ?? {},
         );
       },
     );
@@ -369,9 +582,7 @@ class PredictionList extends StatelessWidget {
                     color: Colors.black54,
                   ),
                   onPressed: () {
-                    context
-                        .read<AutoCompleteBloc>()
-                        .add(const TextChanged(text: ""));
+                    context.read<AutoCompleteBloc>().add(const TextChanged(text: ""));
                     textController.clear();
                   },
                 ),
@@ -418,22 +629,25 @@ class SearchResults extends StatelessWidget {
                 itemCount: (state as AutoCompleteSuccess).items.length,
                 itemBuilder: (BuildContext context, int index) {
                   return SearchResultItemCard(
-                    itemText:
-                    (state as AutoCompleteSuccess).items[index]
-                        .structuredFormatting!,
-                    onTap: () {
-                      context
+                    itemText: (state as AutoCompleteSuccess).items[index].structuredFormatting!,
+                    onTap: () async {
+                      final mapState = context.findAncestorStateOfType<_MapViewState>();
+                      await context
                           .read<MarkerCubit>()
-                          .selectPlace((state as AutoCompleteSuccess)
-                          .items[index]
-                          .placeId
-                          .toString());
-                      context
-                          .read<AutoCompleteBloc>()
-                          .add(const TextChanged(text: ''));
-                      context
-                          .findAncestorStateOfType<_MapViewState>()
-                          ?._onPlaceSelected();
+                          .selectPlace((state as AutoCompleteSuccess).items[index].placeId.toString());
+                      context.read<AutoCompleteBloc>().add(const TextChanged(text: ''));
+                      mapState!._onPlaceSelected();
+                      mapState.setState(() {
+                        // Clear waypoints when a new destination is chosen
+                        mapState._clearWaypoints();
+
+                        // Set the new destination
+                        mapState._originalDestination = (state as AutoCompleteSuccess).items[index].structuredFormatting!.mainText!;
+                      });
+
+                      // Call getDirections with the new dest
+                      mapState.getDirections(
+                          (state as AutoCompleteSuccess).items[index].structuredFormatting!.mainText!, []);
                     },
                   );
                 },

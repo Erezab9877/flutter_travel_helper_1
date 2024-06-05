@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
@@ -17,7 +18,16 @@ class _LoginPageState extends State<LoginPage> {
   final TextEditingController _emailController = TextEditingController();
   final TextEditingController _passwordController = TextEditingController();
   int _success = 1;
-  late String _userEmail;
+  // late String _userEmail;
+
+  @override
+  void initState() {
+    super.initState();
+    if (kDebugMode) {
+      _emailController.text = "abc@gmail.com";
+      _passwordController.text = "111111";
+    }
+  }
 
   void _signIn() async {
     setState(() {
@@ -28,12 +38,13 @@ class _LoginPageState extends State<LoginPage> {
       final User? user = (await _auth.signInWithEmailAndPassword(
         email: _emailController.text,
         password: _passwordController.text,
-      )).user;
+      ))
+          .user;
 
       if (user != null) {
         setState(() {
           _success = 2;
-          _userEmail = user.email!;
+          // _userEmail = user.email!;
         });
 
         // Navigate to MapView after successful login
@@ -90,7 +101,8 @@ class _LoginPageState extends State<LoginPage> {
                   // Navigate to signup page
                   Navigator.push(
                     context,
-                    MaterialPageRoute(builder: (context) => SingupPage()), // Replace SignupPage with your signup page widget
+                    MaterialPageRoute(
+                        builder: (context) => SingupPage()), // Replace SignupPage with your signup page widget
                   );
                 },
                 child: Text('Sign Up'),

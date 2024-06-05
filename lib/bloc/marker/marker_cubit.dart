@@ -7,23 +7,28 @@ import 'package:flutter_travel_helper/repository/place_search_service.dart';
 part 'marker_state.dart';
 
 class MarkerCubit extends Cubit<MarkerState> {
-  MarkerCubit({required this.placeSearchService}) : super(MarkerInitial());
+  MarkerCubit({required this.placeSearchService, this.selectedMarker}) : super(MarkerInitial());
 
   final Set<Marker> mapMarkers = {};
   late GoogleMapController controller;
   final PlaceSearchService placeSearchService;
+  Marker? selectedMarker;
+
   Future<void> selectPlace(
     String placeId,
   ) async {
     mapMarkers.clear();
     final results = await placeSearchService.getPlace(placeId);
-    mapMarkers.add(
-      Marker(
-        markerId: MarkerId(results!.result!.placeId!),
-        position: LatLng(results.result!.geometry!.location!.lat!,
-            results.result!.geometry!.location!.lng!),
-      ),
+
+    Marker marker = Marker(
+      markerId: MarkerId(results!.result!.placeId!),
+      position: LatLng(results.result!.geometry!.location!.lat!, results.result!.geometry!.location!.lng!),
     );
+
+    mapMarkers.add(marker);
+
+    selectedMarker = marker;
+
     await controller.animateCamera(
       CameraUpdate.newCameraPosition(
         CameraPosition(
