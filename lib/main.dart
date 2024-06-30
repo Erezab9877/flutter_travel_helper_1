@@ -5,8 +5,8 @@ import 'package:flutter_travel_helper/bloc/marker/marker_cubit.dart';
 import 'package:flutter_travel_helper/repository/place_search_service.dart';
 import 'package:flutter_travel_helper/view/map_view.dart';
 import 'package:flutter_travel_helper/login/main_page.dart'; // Assuming your login page is in main_page.dart
+ // Assuming your home page is in home_page.dart
 
-import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
 
@@ -40,9 +40,14 @@ class MyApp extends StatelessWidget {
       child: MaterialApp(
         title: 'Your App Title',
         theme: ThemeData(
-            // Your theme data
-            ),
-        home: LoginPage(), // Start with the login page
+          // Your theme data
+        ),
+        initialRoute: FirebaseAuth.instance.currentUser == null ? '/login' : '/',
+        routes: {
+          '/': (context) => MapView(),
+          '/login': (context) => LoginPage(),
+          // Add other routes here
+        },
       ),
     );
   }
