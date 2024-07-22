@@ -103,62 +103,23 @@ class _NearByPlacesScreenState extends State<NearByPlacesScreen> {
       appBar: AppBar(
         title: const Text('Nearby Places'),
         centerTitle: true,
-        backgroundColor: Colors.teal,
+        backgroundColor: Colors.deepPurple,
       ),
       body: SingleChildScrollView(
         child: Padding(
           padding: const EdgeInsets.all(16.0),
           child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(
-                'Find Nearby Places',
-                style: TextStyle(
-                  fontSize: 24,
-                  fontWeight: FontWeight.bold,
-                  color: Colors.teal,
+              Center(
+                child: Text(
+                  'Find Nearby Places',
+                  style: TextStyle(
+                    fontSize: 24,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.deepPurple,
+                  ),
                 ),
-              ),
-              SizedBox(height: 20),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                children: [
-                  ElevatedButton(
-                    onPressed: () {
-                      getNearbyPlaces("restaurant");
-                    },
-                    style: ElevatedButton.styleFrom(
-                      primary: Colors.teal,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(20),
-                      ),
-                    ),
-                    child: const Text("Restaurants"),
-                  ),
-                  ElevatedButton(
-                    onPressed: () {
-                      getNearbyPlaces("park");
-                    },
-                    style: ElevatedButton.styleFrom(
-                      primary: Colors.teal,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(20),
-                      ),
-                    ),
-                    child: const Text("Parks"),
-                  ),
-                  ElevatedButton(
-                    onPressed: () {
-                      getNearbyPlaces("shopping_mall");
-                    },
-                    style: ElevatedButton.styleFrom(
-                      primary: Colors.teal,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(20),
-                      ),
-                    ),
-                    child: const Text("Malls"),
-                  ),
-                ],
               ),
               SizedBox(height: 20),
               Row(
@@ -170,7 +131,7 @@ class _NearByPlacesScreenState extends State<NearByPlacesScreen> {
                   ),
                   Switch(
                     value: _onlyOpenPlaces,
-                    activeColor: Colors.teal,
+                    activeColor: Colors.deepPurple,
                     onChanged: (value) {
                       setState(() {
                         _onlyOpenPlaces = value;
@@ -191,7 +152,7 @@ class _NearByPlacesScreenState extends State<NearByPlacesScreen> {
                       min: 0,
                       max: 5,
                       divisions: 5,
-                      activeColor: Colors.teal,
+                      activeColor: Colors.deepPurple,
                       label: _minRating.toString(),
                       onChanged: (value) {
                         setState(() {
@@ -203,20 +164,30 @@ class _NearByPlacesScreenState extends State<NearByPlacesScreen> {
                 ],
               ),
               SizedBox(height: 20),
-              ElevatedButton(
-                onPressed: () {
-                  Navigator.pop(context, {
-                    'onlyOpenPlaces': _onlyOpenPlaces,
-                    'minRating': _minRating,
-                  });
-                },
-                style: ElevatedButton.styleFrom(
-                  primary: Colors.teal,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(20),
+              Center(
+                child: ElevatedButton(
+                  onPressed: () {
+                    Navigator.pop(context, {
+                      'onlyOpenPlaces': _onlyOpenPlaces,
+                      'minRating': _minRating,
+                    });
+                  },
+                  style: ElevatedButton.styleFrom(
+                    primary: Colors.white, // Change button background color for contrast
+                    onPrimary: Colors.deepPurple, // Change text color
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(20),
+                      side: BorderSide(color: Colors.deepPurple), // Add border color
+                    ),
+                  ),
+                  child: const Text(
+                    "Apply Filters",
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold, // Make the text bold
+                      color: Colors.deepPurple, // Ensure text color is set
+                    ),
                   ),
                 ),
-                child: const Text("Apply Filters"),
               ),
               SizedBox(height: 20),
               if (nearbyPlacesResponse.results != null)
@@ -229,6 +200,9 @@ class _NearByPlacesScreenState extends State<NearByPlacesScreen> {
       ),
     );
   }
+
+
+
 
 
 
@@ -344,7 +318,7 @@ class _MapViewState extends State<MapView> {
   Map<String, dynamic>? _directions;
   Set<Polyline>? _polyLines;
   Set<Marker> _markers = {};
-  List<String> _waypoints = [];
+  List<Map<String, dynamic>> _waypoints = [];
   String _originalDestination = '';
   bool _onlyOpenPlaces = false;
   double _minRating = 0;
@@ -366,7 +340,7 @@ class _MapViewState extends State<MapView> {
 
     String origin = '${_initialPosition?.latitude},${_initialPosition?.longitude}';
     String destination = _originalDestination;
-    String waypoints = _waypoints.join('|');
+    String waypoints =  _waypoints.map((wp) => wp['coordinates'] as String).join('|');
 
     String url = 'https://www.google.com/maps/dir/?api=1&origin=$origin&destination=$destination&waypoints=$waypoints&travelmode=driving';
     print('Generated URL: $url');
@@ -385,14 +359,21 @@ class _MapViewState extends State<MapView> {
     }
   }
 
-  Future<void> _saveTravelData(String userId, String origin, String destination, List<String> waypoints) async {
+  Future<void> _saveTravelData(String userId, String origin, String destination, List<Map<String, dynamic>> waypoints) async {
     CollectionReference travels = FirebaseFirestore.instance.collection('travels');
+
+    List<Map<String, dynamic>> formattedWaypoints = waypoints.map((wp) {
+      return {
+        'coordinates': wp['coordinates'],
+        'type': wp['type'],
+      };
+    }).toList();
 
     Map<String, dynamic> travelData = {
       'userId': userId,
       'origin': origin,
       'destination': destination,
-      'waypoints': waypoints,
+      'waypoints': formattedWaypoints,
       'timestamp': FieldValue.serverTimestamp(),
     };
 
@@ -404,22 +385,24 @@ class _MapViewState extends State<MapView> {
     }
   }
 
-
   String formatWaypoints(List<String> waypoints) {
     return waypoints.map((wp) => 'via:$wp').join('|');
   }
 
-  void _addPlaceToRoute(Results result) {
+  void _addPlaceToRoute(Results result, String type) {
     final waypoint = LatLng(
         result.geometry!.location!.lat!, result.geometry!.location!.lng!);
     final waypointString = '${waypoint.latitude},${waypoint.longitude}';
 
     setState(() {
-      _waypoints.add(waypointString);
+      _waypoints.add({
+        'coordinates': waypointString,
+        'type': type,
+      });
     });
 
     // Call getDirections with the original destination and updated waypoints
-    getDirections(_originalDestination, _waypoints);
+    getDirections(_originalDestination, _waypoints.map((wp) => wp['coordinates'] as String).toList());
   }
 
   void _clearWaypoints() {
@@ -641,7 +624,7 @@ class _MapViewState extends State<MapView> {
               child: const Text('Add'),
               onPressed: () {
                 Navigator.of(context).pop();
-                _addPlaceToRoute(result);
+                _addPlaceToRoute(result, result.types!.first);
               },
             ),
           ],
@@ -896,17 +879,35 @@ class _MapViewState extends State<MapView> {
   void _fetchNearbyPlaces(String placeType) {
     if (_polyLines != null && _polyLines!.isNotEmpty) {
       final polylineCoordinates = _polyLines!.first.points;
+
+      // Calculate indices for quarter and three-quarters points
+      final quarterIndex = (polylineCoordinates.length / 4).round();
+      final threeQuarterIndex = (3 * polylineCoordinates.length / 4).round();
+
       if (_onlyOpenPlaces) {
+        // Fetch only open places if _onlyOpenPlaces is true
         getNearbyMarkers(
           polylineCoordinates.last,
           placeType,
-          isOpen: true, // Fetch only open places if _onlyOpenPlaces is true
+          isOpen: true,
           minRating: _minRating,
         );
         getNearbyMarkers(
           polylineCoordinates[((polylineCoordinates.length - 1) / 2).round()],
           placeType,
-          isOpen: true, // Fetch only open places if _onlyOpenPlaces is true
+          isOpen: true,
+          minRating: _minRating,
+        );
+        getNearbyMarkers(
+          polylineCoordinates[quarterIndex],
+          placeType,
+          isOpen: true,
+          minRating: _minRating,
+        );
+        getNearbyMarkers(
+          polylineCoordinates[threeQuarterIndex],
+          placeType,
+          isOpen: true,
           minRating: _minRating,
         );
       } else {
@@ -923,9 +924,22 @@ class _MapViewState extends State<MapView> {
           isOpen: null, // Pass null to get all places
           minRating: _minRating,
         );
+        getNearbyMarkers(
+          polylineCoordinates[quarterIndex],
+          placeType,
+          isOpen: null, // Pass null to get all places
+          minRating: _minRating,
+        );
+        getNearbyMarkers(
+          polylineCoordinates[threeQuarterIndex],
+          placeType,
+          isOpen: null, // Pass null to get all places
+          minRating: _minRating,
+        );
       }
     }
   }
+
 }
 class MapWidget extends StatelessWidget {
   const MapWidget({
